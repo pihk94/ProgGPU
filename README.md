@@ -4,7 +4,7 @@
 
 Sujet : 
 
-Based on a nested Monte Carlo, the students have to simulate the price process F(t,x,j) of a bullet option 
+Based on a nested Monte Carlo, the students have to simulate the price process $F(t,x,j)$ of a bullet option 
 then train a Neural Network (NN) or at least a linear regression how to infer F(t,x,j) 
 for speciﬁc values taken by the triplet (t,x,j). 
 
