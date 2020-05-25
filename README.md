@@ -4,11 +4,11 @@
 
 Sujet : 
 
-Based on a nested Monte Carlo, the students have to simulate the price process $F(t,x,j)$ of a bullet option 
+Based on a nested Monte Carlo, the students have to simulate the price process F(t,x,j) of a bullet option 
 then train a Neural Network (NN) or at least a linear regression how to infer F(t,x,j) 
 for speciﬁc values taken by the triplet (t,x,j). 
 
-The price of a bullet option F(t,x,j) = e^−r(T−t)E(X | St = x,It = j), X = (ST −K)+1{IT∈[P1,P2]} withI t =X Ti≤t 1{STi<B} and 
+The price of a bullet option F(t,x,j) = exp{−r(T−t)E(X | St = x,It = j)} , X = (ST −K)+1{IT∈[P1,P2]} with I_t = sum_i≤t{1{STi<B}} and 
 
 • K, T are respectively the contract’s strike and maturity 
 
