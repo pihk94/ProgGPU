@@ -1,5 +1,6 @@
 /**************************************************************
-Lokman A. Abbas-Turki code
+Lokman A. Abbas-Turki code reused 
+by Ly Yannick and Prugniaud Melchior for GPU Programming course of ENSAE 2020
 
 Those who re-use this code should mention in their code 
 the name of the author above.
@@ -444,6 +445,7 @@ int main()
 	I_t = (int*)malloc(Ntraj*M*sizeof(int));
 	S_t = (float*)malloc(Ntraj*M*sizeof(float));
 
+	//Init CMRG
 	PostInitDataCMRG();
 	
 	parameters();
@@ -457,25 +459,21 @@ int main()
 	MC_k<<<32,32,2*32*sizeof(float)>>>(P1, P2, x_0, dt, B, K, 
 										  leng, M, 32*32, CMRG,
 										  res1, res2,inner_GPU,Stocks,It);
+
+	//Transfer DATA from device (GPU) to host (CPU)
 	cudaMemcpy(inner_CPU, inner_GPU,Ntraj * M * sizeof(float), cudaMemcpyDeviceToHost);
 	cudaMemcpy(S_t, Stocks, Ntraj*M * sizeof(float), cudaMemcpyDeviceToHost);
 	cudaMemcpy(I_t, It,Ntraj * M * sizeof(float), cudaMemcpyDeviceToHost);
-
-	cudaEventRecord(stop,0);			// GPU timer instructions
-	cudaEventSynchronize(stop);			// GPU timer instructions
-	cudaEventElapsedTime(&Tim,			// GPU timer instructions
-			 start, stop);				// GPU timer instructions
-	cudaEventDestroy(start);			// GPU timer instructions
-	cudaEventDestroy(stop);				// GPU timer instructions
-
 	cudaMemcpy(&sum, res1, sizeof(float), cudaMemcpyDeviceToHost);
 	cudaMemcpy(&sum2, res2, sizeof(float), cudaMemcpyDeviceToHost);
 
+	// GPU timer instructions stop the record
+	cudaEventRecord(stop,0);			
+	cudaEventSynchronize(stop);			
+	cudaEventElapsedTime(&Tim,start, stop);				
+	cudaEventDestroy(start);			
+	cudaEventDestroy(stop);				
 
-
-	cudaFree(res1);
-	cudaFree(res2);
-	
 	// Result of externals trajectories
 	printf("The price is equal to %f\n", sum);
 	printf("error associated to a confidence interval of 95%% = %f\n", 
@@ -504,6 +502,8 @@ int main()
 	free(inner_CPU);
 	cudaFree(Stocks);
 	cudaFree(It);
+	cudaFree(res1);
+	cudaFree(res2);
 	free(S_t);
 	free(I_t);
 	return 0;
