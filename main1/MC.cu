@@ -102,8 +102,6 @@ void parameters()
 		}
 	}
 	fclose(ParFp);
-
-	
 	cudaMemcpyToSymbol(Kg, Kgc, nk*sizeof(float));
 	cudaMemcpyToSymbol(Tg, Tgc, nt*sizeof(float));
 	cudaMemcpyToSymbol(rg, rgc, nt*sizeof(float));
@@ -189,7 +187,6 @@ __device__ void vol_d(float x, float x0, float t, float *V, int q){
 	*V = sqrtf(fminf(fmaxf(u2/u1,0.0001f),0.5f));
 }
 
-
 // Set the new RNG seed
 __device__ void CMRG_set_d(int *a0, int *a1, int *a2, int *a3, int *a4, 
 			         int *a5, int *CMRG_Out){
@@ -221,6 +218,7 @@ __device__ void CMRG_d(int *a0, int *a1, int *a2, int *a3, int *a4,
  int h, p12, p13, p21, p23, k, loc;// Requested local parameters
 
  for(k=0; k<nb; k++){
+
 	 // First Component 
 	 h = *a0/q13; 
 	 p13 = a13*(h*q13-*a0)-h*r13;
@@ -279,10 +277,8 @@ __device__ void CMRG_d(int *a0, int *a1, int *a2, int *a3, int *a4,
   }
 }
 
-
-// Genrates Gaussian distribution from a uniform one (Box-Muller)
+// Generates Gaussian distribution from a uniform one (Box-Muller)
 __device__ void BoxMuller_d(float *g0, float *g1){
-
   float loc;
   if (*g1 < 1.45e-6f){
     loc = sqrtf(-2.0f*logf(0.00001f))*cosf(*g0*2.0f*MoPI);
@@ -294,23 +290,25 @@ __device__ void BoxMuller_d(float *g0, float *g1){
   *g0 = loc;
 }
 
-
 // Euler for local volatility
 __device__ void Euler_d(float *S2, float S1, float r0,
 						float sigma, float dt, float e){
-
   *S2 = S1*(1.0f + r0*dt*dt + sigma*dt*e);
 }
 
-//Inner trajectory
-__global__ void MC_inner_k(int P1, int P2, float St,float _t, int It, float dt,float B, float K, int L, int M,int Ntraj, TabSeedCMRG_t *pt_cmrg,float *payoff){
+// MC for inner trajectories
+__global__ void MC_inner_k(int P1, int P2, float St, float _t, int It, float dt, float B, float K, int L, int M, int Ntraj, TabSeedCMRG_t *pt_cmrg, float *option_price){
+
 	int gb_index_x = threadIdx.x + blockIdx.x*blockDim.x;
 	int a0, a1, a2, a3, a4, a5, k, i, q, P;
 	float g0, g1, Sk, Skp1, t, v;
 	extern __shared__ float Z[];
+
 	Sk = St;
 	P = It;
+
 	CMRG_get_d(&a0, &a1, &a2, &a3, &a4, &a5, pt_cmrg[0][gb_index_x]);
+
 	for (k=int(_t * M); k<M; k++){
 		for (i=1; i<=L; i++){
 			t = dt*dt*(i+L*k);
@@ -323,10 +321,12 @@ __global__ void MC_inner_k(int P1, int P2, float St,float _t, int It, float dt,f
 		}
 		P += (Sk<B);
 	}
+
 	// Reduction phase
 	Z[threadIdx.x] = expf(-rt_int(_t, t, 0, q))*fmaxf(0.0f, Sk-K)*((P<=P2)&&(P>=P1))/Ntraj;
 	Z[threadIdx.x + blockDim.x] = Ntraj*Z[threadIdx.x]*Z[threadIdx.x];
 	__syncthreads();
+
 	i = blockDim.x/2;
 	while (i != 0) {
 		if (threadIdx.x < i){
@@ -335,23 +335,22 @@ __global__ void MC_inner_k(int P1, int P2, float St,float _t, int It, float dt,f
 		__syncthreads();
 		i /= 2;
 	}
+
 	if (threadIdx.x == 0){
-		atomicAdd(payoff, Z[0]);
+		atomicAdd(option_price, Z[0]);
 	}
+
 	CMRG_set_d(&a0, &a1, &a2, &a3, &a4, &a5, pt_cmrg[0][gb_index_x]);
-	}
-// Monte Carlo routine
-__global__ void MC_k(int P1, int P2, float x_0, float dt, 
-					 float B, float K, int L, int M,
-					 int Ntraj, TabSeedCMRG_t *pt_cmrg,
-					 float *sum, float *sum2,float *payoffs,float *Stocks,int *It){
+}
+
+// MC for outer trajectories
+__global__ void MC_outer_k(int P1, int P2, float x_0, float dt, float B, float K, int L, int M, int Ntraj, TabSeedCMRG_t *pt_cmrg, float *option_price, float *sum, float *option_prices, float *stocks, int *It){
 
   int gb_index_x = threadIdx.x + blockIdx.x*blockDim.x;
-  int a0, a1, a2, a3, a4, a5, k, i, q, P,increment;
+  int a0, a1, a2, a3, a4, a5, k, i, q, P, increment;
   float g0, g1, Sk, Skp1, t, v;
 
   extern __shared__ float H[];
-
 
   Sk = x_0;
   P = 0;
@@ -369,12 +368,10 @@ __global__ void MC_k(int P1, int P2, float x_0, float dt,
 		  Sk = Skp1;  
 	  }
 	  P += (Sk<B);
-	
-	increment = k + M * gb_index_x -1;
-	Stocks[increment] = Sk;
+	increment = k + M * gb_index_x - 1;
+	stocks[increment] = Sk;
 	It[increment] = P;
-	MC_inner_k<<<32,32,2*32*sizeof(float)>>>(P1, P2, Sk, k*dt*dt, P, dt, B, K, L, M, 32*32,pt_cmrg, payoffs + increment);
-
+	MC_inner_k<<<32,32,2*32*sizeof(float)>>>(P1, P2, Sk, k*dt*dt, P, dt, B, K, L, M, Ntraj, pt_cmrg, option_prices + increment);
   }
   
   // Reduction phase
@@ -393,8 +390,8 @@ __global__ void MC_k(int P1, int P2, float x_0, float dt,
   }
 
   if (threadIdx.x == 0){
-	atomicAdd(sum, H[0]);
-	atomicAdd(sum2, H[blockDim.x]);
+	atomicAdd(option_prices, H[0]);
+	atomicAdd(sum, H[blockDim.x]);
   }
 
   CMRG_set_d(&a0, &a1, &a2, &a3, &a4, &a5, pt_cmrg[0][gb_index_x]);
@@ -403,10 +400,10 @@ __global__ void MC_k(int P1, int P2, float x_0, float dt,
 
 int main()
 {	
-	int ti =1;
+	int ti = 1;
 	float T = 1.0f;
 	float K = 100.0f;
-	float x_0 = 100.0f;
+	float S0 = 100.0f;
 	float B = 120.0f;
 	int M = 100;
 	int P1 = 10;
@@ -414,40 +411,34 @@ int main()
 	int Nt = 200;
 	float dt = sqrtf(T/Nt);
 	int leng = Nt/M;
-	float sum = 0.0f;	
-	float sum2 = 0.0f;
+	float option_price_CPU = 0.0f;	
+	float sum_CPU = 0.0f;
 	float Tim;							// GPU timer instructions
 	cudaEvent_t start, stop;			// GPU timer instructions
-	float *res1, *res2;
+	float *option_price_GPU, *sum_GPU, *option_prices_GPU, *option_prices_CPU, *St_GPU, *St_CPU;
+	int *It_GPU, *It_CPU;
 	int Ntraj = 32*32;
-	float *inner_GPU ;
-	float *inner_CPU  ;
-	float *Stocks;
-	int *It;
-	float *S_t;
-	int *I_t;
 
-	// ALLOCATION OF MEMORY FOR GPU
-	cudaMalloc(&res1, sizeof(float));
-	cudaMalloc(&res2, sizeof(float));
-	cudaMalloc(&Stocks, Ntraj*M*sizeof(float));
-	cudaMalloc(&It,Ntraj*M*sizeof(int));	
-	cudaMalloc(&inner_GPU,Ntraj*M*sizeof(float));
+	// Allocation of memories inside GPU 
+	cudaMalloc(&option_price_GPU, sizeof(float));
+	cudaMalloc(&sum_GPU, sizeof(float));
+	cudaMalloc(&St_GPU, Ntraj * M * sizeof(float));
+	cudaMalloc(&It_GPU, Ntraj * M * sizeof(int));	
+	cudaMalloc(&option_prices_GPU, Ntraj * M * sizeof(float));
 	VarMalloc();
 
-	// SET VALUES
-	cudaMemset(res1, 0.0f, sizeof(float));
-	cudaMemset(res2, 0.0f, sizeof(float));
-	cudaMemset(inner_GPU, 0,Ntraj*M* sizeof(float));
+	// Init values
+	cudaMemset(option_price_GPU, 0.0f, sizeof(float));
+	cudaMemset(sum_GPU, 0.0f, sizeof(float));
+	cudaMemset(option_prices_GPU, 0, Ntraj * M * sizeof(float));
 
-	//ALLOCATION OF MEMORY INSIDE CPU
-	inner_CPU = (float*)malloc(Ntraj * M *sizeof(float));
-	I_t = (int*)malloc(Ntraj*M*sizeof(int));
-	S_t = (float*)malloc(Ntraj*M*sizeof(float));
+	// Allocation of memories inside CPU
+	option_prices_CPU = (float*)malloc(Ntraj * M * sizeof(float));
+	It_CPU = (int*)malloc(Ntraj*M*sizeof(int));
+	St_CPU = (float*)malloc(Ntraj*M*sizeof(float));
 
-	//Init CMRG
+	// Init CMRG
 	PostInitDataCMRG();
-	
 	parameters();
 
 	// GPU timer instructions initialization
@@ -455,37 +446,34 @@ int main()
 	cudaEventCreate(&stop);
 	cudaEventRecord(start,0);
 
+	MC_outer_k<<<32,32,2*32*sizeof(float)>>>(P1, P2, S0, dt, B, K, leng, M, Ntraj, CMRG, option_price_GPU, sum_GPU, option_prices_GPU, St_GPU, It_GPU);
 
-	MC_k<<<32,32,2*32*sizeof(float)>>>(P1, P2, x_0, dt, B, K, 
-										  leng, M, 32*32, CMRG,
-										  res1, res2,inner_GPU,Stocks,It);
-
-	//Transfer DATA from device (GPU) to host (CPU)
-	cudaMemcpy(inner_CPU, inner_GPU,Ntraj * M * sizeof(float), cudaMemcpyDeviceToHost);
-	cudaMemcpy(S_t, Stocks, Ntraj*M * sizeof(float), cudaMemcpyDeviceToHost);
-	cudaMemcpy(I_t, It,Ntraj * M * sizeof(float), cudaMemcpyDeviceToHost);
-	cudaMemcpy(&sum, res1, sizeof(float), cudaMemcpyDeviceToHost);
-	cudaMemcpy(&sum2, res2, sizeof(float), cudaMemcpyDeviceToHost);
+	// Transfer data from device (GPU) to host (CPU)
+	cudaMemcpy(option_prices_CPU, option_prices_GPU, Ntraj * M * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(St_CPU, St_GPU, Ntraj * M * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(It_CPU, It_GPU, Ntraj * M * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(&option_price_CPU, option_price_GPU, sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(&sum_CPU, sum_GPU, sizeof(float), cudaMemcpyDeviceToHost);
 
 	// GPU timer instructions stop the record
 	cudaEventRecord(stop,0);			
 	cudaEventSynchronize(stop);			
-	cudaEventElapsedTime(&Tim,start, stop);				
+	cudaEventElapsedTime(&Tim,start,stop);				
 	cudaEventDestroy(start);			
 	cudaEventDestroy(stop);				
 
-	// Result of externals trajectories
-	printf("The price is equal to %f\n", sum);
+	// Result of outer trajectories
+	printf("The price is equal to %f\n", option_price_CPU);
 	printf("error associated to a confidence interval of 95%% = %f\n", 
-		1.96*sqrt((double)(1.0f/(Ntraj-1))*(Ntraj*sum2 - (sum*sum)))/sqrt((double)Ntraj));
+		1.96*sqrt((double)(1.0f/(Ntraj-1))*(Ntraj*sum_CPU-(option_price_CPU*option_price_CPU)))/sqrt((double)Ntraj));
 	printf("Execution time %f ms\n", Tim);
-
+	
+	// Writing results is CSV file of inner trajectories
 	printf("===================================\nWriting into a csv file inside the current folder\n===================================");
-	//Data to file
-	FILE *outfile =fopen("data_generated.csv","w");
-	fprintf(outfile,"Temps,It,Stocks,Prix\n");
-	for (int k = 0;k < Ntraj*M; ++k){
-		fprintf(outfile,"%i,%i,%f,%f\n",ti,I_t[k],S_t[k],inner_CPU[k]);
+	FILE *outfile = fopen("data_generated.csv","w");
+	fprintf(outfile,"Temps, It, Stocks, Prix\n");
+	for (int k = 0; k < Ntraj*M; ++k){
+		fprintf(outfile,"%i,%i,%f,%f\n", ti, It_CPU[k], St_CPU[k], option_prices_CPU[k]);
 		if (ti >= 100)
 		{
 			ti=0;
@@ -494,19 +482,20 @@ int main()
 	}
 	fclose(outfile);
 
-
-	//Free memory
+	// Free memory
 	FreeCMRG();
 	FreeVar();
-	cudaFree(inner_GPU) ; 
-	free(inner_CPU);
-	cudaFree(Stocks);
-	cudaFree(It);
-	cudaFree(res1);
-	cudaFree(res2);
-	free(S_t);
-	free(I_t);
+	cudaFree(option_prices_GPU) ; 
+	cudaFree(St_GPU);
+	cudaFree(It_GPU);
+	cudaFree(option_price_GPU);
+	cudaFree(sum_GPU);
+	free(St_CPU);
+	free(It_CPU);
+	free(option_prices_CPU);
 	return 0;
 }
+
+// nvcc -arch=sm_35 -rdc=true MC.cu rng.cu -o MC
 
 
