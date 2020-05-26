@@ -143,8 +143,8 @@ void PostInitDataCMRG()
 ////////////////////////////////////////////////////////////////
  double s1[3] = {1.0, 1.0, 1.0};
  double s2[3] = {1.0, 1.0, 1.0};
- cudaMalloc(&pt_CMRG, 2*sizeof(TabSeedCMRG_t));
- pt_CMRGCPU = (TabSeedCMRG_t*) malloc(2*sizeof(TabSeedCMRG_t));
+ cudaMalloc(&pt_CMRG, sizeof(TabSeedCMRG_t));
+ pt_CMRGCPU = (TabSeedCMRG_t*) malloc(sizeof(TabSeedCMRG_t));
  for (i = 0; i < NbOuter; i++) {
 	for (j = 0; j < NbInner; j++) {
 	   pt_CMRGCPU[0][i][j][0] = (int) s1[0]; 
@@ -159,7 +159,7 @@ void PostInitDataCMRG()
  }
  
  // - Copy CMRG data on the GPU
- cudaMemcpy(pt_CMRG, pt_CMRGCPU, 2*sizeof(TabSeedCMRG_t), cudaMemcpyHostToDevice);
+ cudaMemcpy(pt_CMRG, pt_CMRGCPU, sizeof(TabSeedCMRG_t), cudaMemcpyHostToDevice);
 }
 void FreeCMRG(void){
 	cudaFree(pt_CMRG);

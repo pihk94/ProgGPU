@@ -9,8 +9,8 @@ the name of the author above.
 #define __CONSTANTS_TYPES__
 
 ////////////////Algorithm Parameters///////////////
-#define NbOuter (16)	              //Number of MC trajectories for outer simulation
-#define NbInner (16)                //Number of MC trajectories for inner simulation
+#define NbOuter (32)	              //Number of MC trajectories for outer simulation
+#define NbInner (32)                //Number of MC trajectories for inner simulation
 
 // Pi approximation needed in some kernels
 #define MoPI (3.1415927f)
