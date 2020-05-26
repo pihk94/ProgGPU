@@ -390,7 +390,7 @@ __global__ void MC_outer_k(int P1, int P2, float x_0, float dt, float B, float K
   }
 
   if (threadIdx.x == 0){
-	atomicAdd(option_prices, H[0]);
+	atomicAdd(option_price, H[0]);
 	atomicAdd(sum, H[blockDim.x]);
   }
 
